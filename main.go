@@ -19,7 +19,7 @@ var win *acme.Win
 var needrun = make(chan bool, 1)
 var regmatch *regexp.Regexp
 
-func watchrout(watcher *fsnotify.Watcher, done chan bool) {
+func fswatcher(watcher *fsnotify.Watcher, done chan bool) {
 	err := watcher.Add(".")
 	if err != nil {
 		log.Fatal(err)
@@ -87,7 +87,7 @@ func main() {
 	defer watcher.Close()
 
 	done := make(chan bool, 1)
-	go watchrout(watcher, done)
+	go fswatcher(watcher, done)
 	for {
 		select {
 		case waserr := <-done:
