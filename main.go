@@ -86,6 +86,7 @@ func fswatcher(done chan bool, fname string) {
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
+				waserr = true
 				fmt.Fprintf(os.Stderr, "error:", err)
 				return
 			}
@@ -123,14 +124,9 @@ func main() {
 	done := make(chan bool, 1)
 	go fswatcher(done, ".")
 	for {
-		select {
-		case waserr := <-done:
-			if waserr {
-				fmt.Fprintf(os.Stderr, "watcher exited")
-				os.Exit(1)
-			}
-			break
-		default:
+		waserr := <-done
+		if waserr {
+			log.Fatal("watcher exited badly")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
