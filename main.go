@@ -86,9 +86,9 @@ func fswatcher(done chan bool, fname string) {
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
+				fmt.Fprintf(os.Stderr, "error:", err)
 				return
 			}
-			fmt.Fprintf(os.Stderr, "error:", err)
 		}
 	}
 }
