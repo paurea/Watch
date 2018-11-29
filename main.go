@@ -23,13 +23,6 @@ var win *acme.Win
 var needrun = make(chan bool, 1)
 var regmatch *regexp.Regexp
 
-var kq struct {
-	fd   int
-	dir  *os.File
-	m    map[string]*os.File
-	name map[int]string
-}
-
 func fswatcher(done chan bool, fname string) {
 	if Debug {
 		log.Println("new watcher: ", fname)
