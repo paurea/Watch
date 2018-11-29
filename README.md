@@ -5,3 +5,7 @@ Added a regexp as first parameter for the files/directories to watch.
 
 
 `Watch regexp cmd [args]`
+
+To install it:
+
+`go get -u https://github.com/paurea/Watch`
