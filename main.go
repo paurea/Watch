@@ -14,41 +14,88 @@ import (
 	"time"
 )
 
+const (
+	Debug = false
+)
+
 var args []string
 var win *acme.Win
 var needrun = make(chan bool, 1)
 var regmatch *regexp.Regexp
 
-func fswatcher(watcher *fsnotify.Watcher, done chan bool) {
-	err := watcher.Add(".")
+var kq struct {
+	fd   int
+	dir  *os.File
+	m    map[string]*os.File
+	name map[int]string
+}
+
+func fswatcher(done chan bool, fname string) {
+	if Debug {
+		log.Println("new watcher: ", fname)
+	}
+	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
 	}
-	evmatch := false
+	defer watcher.Close()
+
+	err = watcher.Add(fname)
+	if err != nil {
+		log.Fatal(err)
+	}
 	waserr := false
 	defer func() {
 		done <- waserr
 	}()
+	dir, err := os.Open(fname)
+	if err != nil {
+		log.Fatal(err)
+	}
+	names, err := dir.Readdirnames(-1)
+	if err != nil {
+		log.Fatalf("readdir: %v", err)
+	}
+	for _, name := range names {
+		subfname := fname + "/" + name
+		if fi, err := os.Stat(name); err == nil && fi.Mode().IsDir() {
+			go fswatcher(done, subfname)
+		}
+	}
+	//I don't remove watchers yet
 	for {
+		dorun := false
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			if event.Op&fsnotify.Write == fsnotify.Write {
-				if evmatch = regmatch.MatchString(event.Name); evmatch {
-					//log.Println("modified file:", event.Name)
-					select {
-					case needrun <- true:
-					default:
-					}
+			switch {
+			case event.Op&fsnotify.Create == fsnotify.Create:
+				if fi, err := os.Stat(event.Name); err == nil && fi.Mode().IsDir() {
+					go fswatcher(done, event.Name)
+				}
+				dorun = regmatch.MatchString(event.Name)
+				if Debug && dorun {
+					log.Println("created file:", event.Name)
+				}
+			case event.Op&fsnotify.Write == fsnotify.Write:
+				dorun = regmatch.MatchString(event.Name)
+				if Debug && dorun {
+					log.Println("modified file:", event.Name)
+				}
+			}
+			if dorun {
+				select {
+				case needrun <- true:
+				default:
 				}
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}
-			log.Println("error:", err)
+			fmt.Fprintf(os.Stderr, "error:", err)
 		}
 	}
 }
@@ -80,14 +127,8 @@ func main() {
 	go events()
 	go runner()
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer watcher.Close()
-
 	done := make(chan bool, 1)
-	go fswatcher(watcher, done)
+	go fswatcher(done, ".")
 	for {
 		select {
 		case waserr := <-done:
