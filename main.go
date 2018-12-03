@@ -23,13 +23,55 @@ var win *acme.Win
 var needrun = make(chan bool, 1)
 var regmatch *regexp.Regexp
 
+const (
+	maxWatchers = 40
+	maxRepeatWatchers = 3
+)
+
+// Keep a list of watched dirs for paranoia so
+// I don't create more than maxWatchers*maxRepeatWatchers goroutines
+var watched struct {
+	sync.Mutex
+	fnames map[string]int
+}
 func fswatcher(done chan bool, fname string) {
 	if Debug {
 		log.Println("new watcher: ", fname)
 	}
+	waserr := false
+	defer func() {
+		done <- waserr
+	}()
+
+	watched.Lock()
+	i, ok := watched.fnames[fname];
+	watched.fnames[fname] = i + 1
+	if  ok {
+		nwatched := len(watched.fnames)
+		if i > maxWatchers || nwatched > maxRepeatWatchers {
+			waserr = true
+			fmt.Fprintf(os.Stderr, "Too many watchers: for %s: %d > %d || total %d > %d", fname, i, maxWatchers, nwatched, maxRepeatWatchers)
+			watched.Unlock()
+			return
+		}
+	}
+	watched.Unlock()
+
+	defer func() {
+		watched.Lock()
+		i := watched.fnames[fname]
+		if i == 0 {
+			delete(watched.fnames, fname)
+		}else{
+			watched.fnames[fname] = i - 1
+		}
+		watched.Unlock()
+	}()
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Fatal(err)
+		waserr = true
+		fmt.Fprintf(os.Stderr, "creating watcher %s", err)
+		return
 	}
 	defer watcher.Close()
 
@@ -37,10 +79,6 @@ func fswatcher(done chan bool, fname string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	waserr := false
-	defer func() {
-		done <- waserr
-	}()
 	dir, err := os.Open(fname)
 	if err != nil {
 		log.Fatal(err)
@@ -55,7 +93,6 @@ func fswatcher(done chan bool, fname string) {
 			go fswatcher(done, subfname)
 		}
 	}
-	//I don't remove watchers yet
 	for {
 		dorun := false
 		select {
@@ -64,6 +101,11 @@ func fswatcher(done chan bool, fname string) {
 				return
 			}
 			switch {
+			case event.Op&fsnotify.Remove == fsnotify.Remove:
+				if event.Name == fname {
+					waserr = false
+					return
+				}
 			case event.Op&fsnotify.Create == fsnotify.Create:
 				if fi, err := os.Stat(event.Name); err == nil && fi.Mode().IsDir() {
 					go fswatcher(done, event.Name)
@@ -122,6 +164,7 @@ func main() {
 	go runner()
 
 	done := make(chan bool, 1)
+	watched.fnames = make((map[string]int))
 	go fswatcher(done, ".")
 	for {
 		waserr := <-done
