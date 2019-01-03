@@ -85,11 +85,11 @@ func fswatcher(done chan bool, fname string) {
 	}
 	names, err := dir.Readdirnames(-1)
 	if err != nil {
-		log.Fatalf("readdir: %v", err)
+		log.Fatalf("readdir: %s %v", fname, err)
 	}
 	for _, name := range names {
 		subfname := fname + "/" + name
-		if fi, err := os.Stat(name); err == nil && fi.Mode().IsDir() {
+		if fi, err := os.Stat(subfname); err == nil && fi.Mode().IsDir() {
 			go fswatcher(done, subfname)
 		}
 	}
