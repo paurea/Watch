@@ -23,8 +23,10 @@ var win *acme.Win
 var needrun = make(chan bool, 1)
 var regmatch *regexp.Regexp
 
+var ignoreRegmatch *regexp.Regexp
+
 const (
-	maxWatchers = 40
+	maxWatchers = 100
 	maxRepeatWatchers = 3
 )
 
@@ -35,6 +37,12 @@ var watched struct {
 	fnames map[string]int
 }
 func fswatcher(done chan bool, fname string) {
+	if doIgnore := ignoreRegmatch.MatchString(fname); doIgnore {
+		if Debug {
+			log.Println("ignore watcher: ", fname)
+		}
+		return
+	}
 	if Debug {
 		log.Println("new watcher: ", fname)
 	}
@@ -136,6 +144,8 @@ func fswatcher(done chan bool, fname string) {
 	}
 }
 
+const IgnoreReg = ".*/.git/.*"	//git blows up everything
+
 func main() {
 	flag.Parse()
 	args = flag.Args()
@@ -144,6 +154,11 @@ func main() {
 	}
 
 	var err error
+	ignoreRegmatch, err = regexp.Compile(IgnoreReg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bad regexp ignore")
+		log.Fatal("usage: Watch regexp command [args]")
+	}
 	regmatch, err = regexp.Compile(args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bad regexp")
